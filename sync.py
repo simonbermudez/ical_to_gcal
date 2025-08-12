@@ -100,15 +100,25 @@ def event_to_gcal_payload(e: Event):
                 "timeZone": start.get("timeZone", "UTC"),
             }
 
-    # Recurrence (defensive handling - skip on any issues)
+    # Recurrence (use icalendar's to_ical method)
     recurrence = []
     rrule = e.get("rrule")
     if rrule:
         try:
-            # For now, skip recurrence entirely to avoid issues
-            # TODO: Implement more robust RRULE conversion
-            print(f"[debug] Skipping recurrence for event {uid} - RRULE conversion needs improvement")
-            recurrence = []
+            # Use the icalendar library's built-in conversion
+            rrule_bytes = rrule.to_ical()
+            if isinstance(rrule_bytes, bytes):
+                rrule_string = rrule_bytes.decode('utf-8')
+            else:
+                rrule_string = str(rrule_bytes)
+            
+            # Ensure it starts with RRULE:
+            if not rrule_string.startswith('RRULE:'):
+                rrule_string = f"RRULE:{rrule_string}"
+            
+            recurrence = [rrule_string]
+            print(f"[debug] RRULE: {rrule_string}")
+                
         except Exception as ex:
             print(f"[warning] Failed to convert RRULE, skipping recurrence: {ex}")
             recurrence = []
@@ -209,6 +219,74 @@ def get_all_synced_google_events(service, calendar_id):
             break
     return items
 
+def is_future_event(event):
+    """Check if an event starts in the future or has future recurring occurrences."""
+    try:
+        dtstart = event.get("dtstart")
+        if not dtstart:
+            return False
+        
+        now = datetime.now(pytz.UTC)
+        
+        # Handle different datetime formats for the start time
+        event_start = None
+        if hasattr(dtstart.dt, 'tzinfo'):
+            # datetime with timezone
+            event_start = dtstart.dt
+            if event_start.tzinfo is None:
+                # Treat naive datetime as UTC
+                event_start = event_start.replace(tzinfo=pytz.UTC)
+        else:
+            # date only (all-day event)
+            from datetime import date
+            if isinstance(dtstart.dt, date):
+                # Convert date to datetime at start of day UTC
+                event_start = datetime.combine(dtstart.dt, datetime.min.time()).replace(tzinfo=pytz.UTC)
+        
+        if not event_start:
+            return True  # If we can't parse, include it to be safe
+        
+        # Check if the event has a recurrence rule
+        rrule = event.get("rrule")
+        if rrule:
+            # For recurring events, check if they have future occurrences
+            try:
+                # Check if there's an UNTIL date
+                until_date = None
+                if hasattr(rrule, 'items'):
+                    for k, v in rrule.items():
+                        if k.upper() == 'UNTIL' and v:
+                            # v is typically a list
+                            until_value = v[0] if isinstance(v, list) else v
+                            if hasattr(until_value, 'tzinfo'):
+                                until_date = until_value
+                                if until_date.tzinfo is None:
+                                    until_date = until_date.replace(tzinfo=pytz.UTC)
+                            elif hasattr(until_value, 'dt'):
+                                until_date = until_value.dt
+                                if until_date.tzinfo is None:
+                                    until_date = until_date.replace(tzinfo=pytz.UTC)
+                            break
+                
+                # If there's an UNTIL date, check if it's in the future
+                if until_date:
+                    return until_date > now
+                else:
+                    # No UNTIL date means the recurrence continues indefinitely
+                    # Always include these recurring events
+                    return True
+                    
+            except Exception:
+                # If we can't parse the recurrence rule, include the event
+                return True
+        else:
+            # Non-recurring event - just check the start time
+            return event_start > now
+        
+    except Exception:
+        # If we can't determine the date, include the event to be safe
+        return True
+
 def main():
     parser = argparse.ArgumentParser(description="Sync an ICS public feed into a Google Calendar.")
     parser.add_argument("--ics-url", required=True, help="Public ICS feed URL")
@@ -217,6 +295,7 @@ def main():
     parser.add_argument("--token", default="token.json", help="Cached OAuth token file")
     parser.add_argument("--prune-missing", action="store_true", help="Delete Google events (with icsUid) not present in the current feed")
     parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing to Google")
+    parser.add_argument("--future-only", action="store_true", help="Only sync events that start in the future (skip past events)")
     args = parser.parse_args()
 
     service = get_service(token_path=args.token, creds_path=args.credentials)
@@ -248,6 +327,13 @@ def main():
             skipped += 1
             continue
 
+        # Skip past events if --future-only flag is set
+        if args.future_only and not is_future_event(ev):
+            summary = ev.get("summary", "No Title")
+            print(f"[skip] past event: {summary} ({uid})")
+            skipped += 1
+            continue
+
         # Look up existing
         lookup = gcal_find_by_ics_uid(service, args.calendar_id, uid)
         items = lookup.get("items", [])
@@ -264,7 +350,7 @@ def main():
                 print(f"[skip] {uid} cancelled but not present in Google")
             continue
 
-        # Upsert with simplified error handling
+        # Upsert with robust error handling and retry logic
         try:
             if existing_id:
                 print(f"[update] {uid} -> {existing_id}")
@@ -277,8 +363,36 @@ def main():
                     gcal_upsert_event(service, args.calendar_id, payload, existing_event_id=None)
                 created += 1
         except Exception as ex:
-            print(f"[error] Failed to {'update' if existing_id else 'create'} {uid}: {ex}")
-            skipped += 1
+            error_msg = str(ex).lower()
+            operation = 'update' if existing_id else 'create'
+            
+            # If it's a recurrence-related error, try without recurrence
+            if "recurrence" in error_msg or "rrule" in error_msg:
+                print(f"[error] {operation} failed due to recurrence rule: {ex}")
+                if "recurrence" in payload and payload["recurrence"]:
+                    print(f"[retry] Retrying {uid} without recurrence")
+                    payload_no_recur = payload.copy()
+                    payload_no_recur.pop("recurrence", None)
+                    try:
+                        if existing_id:
+                            gcal_upsert_event(service, args.calendar_id, payload_no_recur, existing_event_id=existing_id)
+                            updated += 1
+                        else:
+                            gcal_upsert_event(service, args.calendar_id, payload_no_recur, existing_event_id=None)
+                            created += 1
+                        print(f"[success] {operation.capitalize()}d {uid} without recurrence")
+                        continue
+                    except Exception as ex2:
+                        print(f"[error] Still failed to {operation} {uid}: {ex2}")
+                        skipped += 1
+                        continue
+                else:
+                    print(f"[error] Recurrence error but no recurrence in payload: {ex}")
+                    skipped += 1
+                    continue
+            else:
+                print(f"[error] Failed to {operation} {uid}: {ex}")
+                skipped += 1
 
     # Prune events that exist in Google but not in current ICS feed
     if args.prune_missing:

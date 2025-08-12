@@ -15,18 +15,37 @@ A Python script that synchronizes events from an ICS (iCalendar) feed to a Googl
 
 ## Prerequisites
 
-- Python 3.6+
+- Python 3.6+ (for local installation) OR Docker (for containerized usage)
 - Google Cloud Project with Calendar API enabled
 - OAuth 2.0 credentials file from Google Cloud Console
 
 ## Installation
+
+### Option 1: Local Python Installation
 
 1. Install required dependencies:
 ```bash
 pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client icalendar pytz python-dateutil requests
 ```
 
-2. Set up Google Calendar API credentials:
+### Option 2: Docker (Recommended)
+
+1. Build the Docker image:
+```bash
+./docker-build.sh
+```
+
+2. Set up directories and add credentials:
+```bash
+mkdir -p credentials data
+cp path/to/your/credentials.json credentials/
+```
+
+For detailed Docker usage, see [DOCKER.md](DOCKER.md).
+
+## Google Calendar API Setup
+
+1. Set up Google Calendar API credentials:
    - Go to [Google Cloud Console](https://console.cloud.google.com/)
    - Create a new project or select an existing one
    - Enable the Google Calendar API
@@ -55,8 +74,11 @@ python sync.py --ics-url ICS_URL --calendar-id CALENDAR_ID [OPTIONS]
 - `--token`: Cached OAuth token file (default: "token.json")
 - `--prune-missing`: Delete Google events not present in current ICS feed
 - `--dry-run`: Show what would change without actually modifying the calendar
+- `--future-only`: Only sync events that start in the future (skip past events). For recurring events, this checks if the recurrence has future occurrences based on the UNTIL date.
 
 ### Examples
+
+#### Local Python Usage
 
 **Sync to primary calendar:**
 ```bash
@@ -76,6 +98,28 @@ python sync.py --ics-url "https://calendar.example.com/events.ics" --calendar-id
 **Use custom credentials file:**
 ```bash
 python sync.py --ics-url "https://calendar.example.com/events.ics" --calendar-id "work@company.com" --credentials "my-creds.json"
+```
+
+**Sync only future events (skip past events):**
+```bash
+python sync.py --ics-url "https://calendar.example.com/events.ics" --calendar-id "primary" --future-only
+```
+
+#### Docker Usage
+
+**Quick sync with Docker:**
+```bash
+./docker-sync.sh "https://calendar.example.com/events.ics" "primary" --dry-run
+```
+
+**Sync only future events with Docker:**
+```bash
+./docker-sync.sh "https://calendar.example.com/events.ics" "primary" --future-only --prune-missing
+```
+
+**List calendars with Docker:**
+```bash
+docker-compose --profile tools run --rm list-calendars
 ```
 
 ## First Run Setup

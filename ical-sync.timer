@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ICS sync every 6 hours
+Requires=ical-sync.service
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
