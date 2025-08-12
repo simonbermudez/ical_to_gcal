@@ -1,0 +1,14 @@
+[Unit]
+Description=ICS to Google Calendar Sync
+Wants=ical-sync.timer
+
+[Service]
+Type=oneshot
+User=%i
+WorkingDirectory=/home/siber/Dev/ical_to_gcal
+ExecStart=/usr/bin/docker-compose run --rm ical-sync
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
