@@ -180,6 +180,24 @@ def gcal_upsert_event(service, calendar_id, payload, existing_event_id=None):
             body=payload
         ).execute()
 
+def events_differ(ics_payload, gcal_event):
+    """
+    Compare key fields between ICS payload and Google event.
+    Returns True if any relevant field differs (start, end, recurrence, summary, description, location, exceptions).
+    """
+    def norm(val):
+        if isinstance(val, dict):
+            return json.dumps(val, sort_keys=True)
+        if isinstance(val, list):
+            return json.dumps(val, sort_keys=True)
+        return str(val or "")
+
+    keys = ["start", "end", "recurrence", "summary", "description", "location"]
+    for k in keys:
+        if norm(ics_payload.get(k)) != norm(gcal_event.get(k)):
+            return True
+    return False
+
 def gcal_delete_event(service, calendar_id, event_id):
     service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
 
@@ -350,18 +368,30 @@ def main():
                 print(f"[skip] {uid} cancelled but not present in Google")
             continue
 
+        # --- Improved moved/exception detection ---
+        should_update = False
+        if existing_id:
+            if events_differ(payload, existing):
+                should_update = True
+        else:
+            should_update = True
+
         # Upsert with robust error handling and retry logic
         try:
-            if existing_id:
-                print(f"[update] {uid} -> {existing_id}")
-                if not args.dry_run:
-                    gcal_upsert_event(service, args.calendar_id, payload, existing_event_id=existing_id)
-                updated += 1
+            if should_update:
+                if existing_id:
+                    print(f"[update] {uid} -> {existing_id} (details changed)")
+                    if not args.dry_run:
+                        gcal_upsert_event(service, args.calendar_id, payload, existing_event_id=existing_id)
+                    updated += 1
+                else:
+                    print(f"[create] {uid}")
+                    if not args.dry_run:
+                        gcal_upsert_event(service, args.calendar_id, payload, existing_event_id=None)
+                    created += 1
             else:
-                print(f"[create] {uid}")
-                if not args.dry_run:
-                    gcal_upsert_event(service, args.calendar_id, payload, existing_event_id=None)
-                created += 1
+                print(f"[skip] {uid} (no changes)")
+                skipped += 1
         except Exception as ex:
             error_msg = str(ex).lower()
             operation = 'update' if existing_id else 'create'
