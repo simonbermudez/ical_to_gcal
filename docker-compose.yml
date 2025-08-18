@@ -1,9 +1,8 @@
-version: '3.8'
-
 services:
   ical-sync:
     build: .
     image: ical-to-gcal:latest
+    restart: unless-stopped
     volumes:
       - ./credentials:/app/credentials
       - ./data:/app/data
@@ -16,8 +15,6 @@ services:
     # Keep container running for Ofelia to execute commands
     entrypoint: ["/bin/sh", "-c"]
     command: ["tail -f /dev/null"]
-    profiles:
-      - scheduler
     
   # Service for one-time credential setup
   setup:
@@ -50,15 +47,14 @@ services:
   # Scheduled sync service (runs every 6 hours)
   scheduler:
     image: mcuadros/ofelia:latest
+    restart: unless-stopped
     command: daemon --docker
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - ical-sync
     labels:
-      # Run sync command in the ical-sync container every 30 minutes
-      ofelia.job-exec.ical-sync.schedule: "@every 30m"
+      # Run sync command at :00 and :30 of every hour
+      ofelia.job-exec.ical-sync.schedule: "0 0,30 * * * *"
       ofelia.job-exec.ical-sync.container: "ical_to_gcal-ical-sync-1"
       ofelia.job-exec.ical-sync.command: "/app/docker-entrypoint.sh"
-    profiles:
-      - scheduler
