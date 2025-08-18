@@ -1,3 +1,3 @@
-YOUR_ICS_URL_HERE==>YOUR_ICS_URL_HERE
-YOUR_CALENDAR_ID_HERE==>YOUR_CALENDAR_ID_HERE
-YOUR_DOMAIN_HERE==>YOUR_DOMAIN_HERE
+# This file was used to clean sensitive data from git history
+# The cleaning has been completed successfully
+# Original sensitive URLs and calendar IDs have been replaced with placeholders

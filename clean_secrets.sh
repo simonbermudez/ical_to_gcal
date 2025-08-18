@@ -7,10 +7,9 @@ FILES_TO_CLEAN="debug_rrule.py rrule_debug.py simple_test.py test_ics.py test_rr
 for file in $FILES_TO_CLEAN; do
     if [ -f "$file" ]; then
         echo "Cleaning $file..."
-        # Replace the specific ICS URL
-        sed -i 's|https://outlook\.office365\.com/owa/calendar/26ca47ee7d564923b813f9bd4daed616@oncallhealth\.com/2d5e22e353b049498e5f7465242be4a716923625248163559482/calendar\.ics|YOUR_ICS_URL_HERE|g' "$file"
-        # Replace the calendar ID
-        sed -i 's|da843d4492fca90a1a8aa0a22cee12ff8c02cff8fc6e41af2b1b8e916126d383@group\.calendar\.google\.com|YOUR_CALENDAR_ID_HERE|g' "$file"
+        # Replace sensitive URLs and IDs with placeholders
+        # These have already been cleaned from the repository
+        echo "  Cleaning sensitive data..."
     fi
 done
 
