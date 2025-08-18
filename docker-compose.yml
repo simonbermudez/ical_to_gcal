@@ -13,8 +13,11 @@ services:
       - ICS_URL=${ICS_URL}
       - CALENDAR_ID=${CALENDAR_ID}
       - SYNC_FLAGS=${SYNC_FLAGS:---dry-run}
-    # The entrypoint script will use these environment variables
-    # command: # Controlled by environment variables
+    # Keep container running for Ofelia to execute commands
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["tail -f /dev/null"]
+    profiles:
+      - scheduler
     
   # Service for one-time credential setup
   setup:
@@ -50,9 +53,12 @@ services:
     command: daemon --docker
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - ical-sync
     labels:
-      # Run the ical-sync service every 1 hour
-      ofelia.job-service-run.ical-sync.schedule: "0 */1 * * *"
-      ofelia.job-service-run.ical-sync.service: "ical-sync"
+      # Run sync command in the ical-sync container every hour
+      ofelia.job-exec.ical-sync.schedule: "@every 1h"
+      ofelia.job-exec.ical-sync.container: "ical_to_gcal-ical-sync-1"
+      ofelia.job-exec.ical-sync.command: "python sync.py --credentials /app/credentials/credentials.json --token /app/credentials/token.json --ics-url \"${ICS_URL}\" --calendar-id \"${CALENDAR_ID}\" --future-only"
     profiles:
       - scheduler
