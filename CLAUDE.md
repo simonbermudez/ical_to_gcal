@@ -79,6 +79,9 @@ docker-compose --profile scheduler down
 
 # Interactive debugging
 docker run --rm -it -v $(pwd)/credentials:/app/credentials --entrypoint /bin/bash ical-to-gcal
+
+# Run Sync Manually 
+docker compose run --rm ical-sync
 ```
 
 ## Command Line Arguments
